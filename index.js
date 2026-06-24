@@ -32,6 +32,11 @@ async function run() {
         const db = client.db("arthub");
         const artCollection = db.collection("artworks")
 
+        app.post("/artworks", async (req, res) => {
+            const artData = req.body;
+            const result = await artCollection.insertOne(artData);
+            res.json(result)
+        })
 
 
         await client.db("admin").command({ ping: 1 });
