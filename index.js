@@ -31,7 +31,7 @@ async function run() {
         await client.connect();
         const db = client.db("arthub");
         const artCollection = db.collection("artworks")
-        const usersCollection = db.collection("users");
+        const usersCollection = db.collection("user");
 
         app.post("/artworks", async (req, res) => {
             const artData = req.body;
@@ -90,7 +90,7 @@ async function run() {
         });
 
 
-        app.get("/users/:email", async (req, res) => {
+        app.get("/user/:email", async (req, res) => {
             try {
                 const email = req.params.email;
 
@@ -111,29 +111,26 @@ async function run() {
             }
         });
 
-        app.patch("/users/subscription/:email", async (req, res) => {
-            try {
+        app.patch(
+            "/user/subscription/:email",
+            async (req, res) => {
                 const email = req.params.email;
+
                 const { subscriptionTier } = req.body;
 
-                const result = await usersCollection.updateOne(
-                    { email },
-                    {
-                        $set: {
-                            subscriptionTier,
-                        },
-                    }
-                );
+                const result =
+                    await usersCollection.updateOne(
+                        { email },
+                        {
+                            $set: {
+                                subscriptionTier,
+                            },
+                        }
+                    );
 
-                res.json(result);
-            } catch (error) {
-                console.error(error);
-
-                res.status(500).json({
-                    message: "Failed to update subscription",
-                });
+                res.send(result);
             }
-        });
+        );
 
 
         await client.db("admin").command({ ping: 1 });
