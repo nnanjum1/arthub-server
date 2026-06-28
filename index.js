@@ -31,6 +31,7 @@ async function run() {
         await client.connect();
         const db = client.db("arthub");
         const artCollection = db.collection("artworks")
+        const usersCollection = db.collection("users");
 
         app.post("/artworks", async (req, res) => {
             const artData = req.body;
@@ -86,6 +87,52 @@ async function run() {
                 .toArray();
 
             res.send(result);
+        });
+
+
+        app.get("/users/:email", async (req, res) => {
+            try {
+                const email = req.params.email;
+
+                const user = await usersCollection.findOne({ email });
+
+                if (!user) {
+                    return res.status(404).json({
+                        message: "User not found",
+                    });
+                }
+
+                res.json(user);
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({
+                    message: "Failed to fetch user",
+                });
+            }
+        });
+
+        app.patch("/users/subscription/:email", async (req, res) => {
+            try {
+                const email = req.params.email;
+                const { subscriptionTier } = req.body;
+
+                const result = await usersCollection.updateOne(
+                    { email },
+                    {
+                        $set: {
+                            subscriptionTier,
+                        },
+                    }
+                );
+
+                res.json(result);
+            } catch (error) {
+                console.error(error);
+
+                res.status(500).json({
+                    message: "Failed to update subscription",
+                });
+            }
         });
 
 
