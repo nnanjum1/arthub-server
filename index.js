@@ -338,6 +338,70 @@ async function run() {
             }
         });
 
+        app.get("/artist-dashboard/:email", async (req, res) => {
+            try {
+                const email = req.params.email;
+
+                const artworks = await artCollection
+                    .find({ artistEmail: email })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                const totalArtworks = artworks.length;
+
+                const activeListings = artworks.filter(
+                    art => art.availability === "Available"
+                ).length;
+
+                const artworkIds = artworks.map(art => art._id.toString());
+
+                const purchases = await purchasesCollection
+                    .find({
+                        artworkId: { $in: artworkIds }
+                    })
+                    .sort({ purchasedAt: -1 })
+                    .toArray();
+
+                const totalSales = purchases.length;
+
+                const revenue = purchases.reduce((sum, purchase) => {
+                    const artwork = artworks.find(
+                        art => art._id.toString() === purchase.artworkId
+                    );
+
+                    return sum + (artwork?.price || 0);
+                }, 0);
+
+                const recentSales = purchases.map(purchase => {
+                    const artwork = artworks.find(
+                        art => art._id.toString() === purchase.artworkId
+                    );
+
+                    return {
+                        _id: purchase._id,
+                        artwork: artwork?.title,
+                        buyer: purchase.buyerEmail,
+                        amount: artwork?.price,
+                        date: purchase.purchasedAt,
+                    };
+                });
+
+                res.send({
+                    totalArtworks,
+                    activeListings,
+                    totalSales,
+                    revenue,
+                    recentArtworks: artworks.slice(0, 5),
+                    recentSales: recentSales.slice(0, 5),
+                });
+            } catch (err) {
+                console.log(err);
+                res.status(500).send({
+                    message: "Failed to load dashboard",
+                });
+            }
+        });
+
 
 
         await client.db("admin").command({ ping: 1 });
