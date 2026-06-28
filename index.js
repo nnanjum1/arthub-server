@@ -1,12 +1,16 @@
+require("dotenv").config();
+
 const dns = require("node:dns");
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 const express = require('express');
 const cors = require('cors')
+const Stripe = require("stripe");
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const dotenv = require('dotenv');
-dotenv.config()
+// const dotenv = require('dotenv');
+// dotenv.config()
 
 const uri = process.env.MONGODB_URI;
 const app = express();
@@ -32,6 +36,7 @@ async function run() {
         const db = client.db("arthub");
         const artCollection = db.collection("artworks")
         const usersCollection = db.collection("user");
+        const purchasesCollection = db.collection("purchases");
 
         app.post("/artworks", async (req, res) => {
             const artData = req.body;
@@ -131,6 +136,145 @@ async function run() {
                 res.send(result);
             }
         );
+
+        app.post("/create-checkout-session", async (req, res) => {
+            try {
+                const { artworkId, buyerEmail } = req.body;
+
+                const user = await usersCollection.findOne({
+                    email: buyerEmail,
+                });
+
+                const artwork = await artCollection.findOne({
+                    _id: new ObjectId(artworkId),
+                });
+
+                if (!artwork) {
+                    return res.status(404).json({
+                        message: "Artwork not found",
+                    });
+                }
+
+                const tier = (user?.subscriptionTier || "free").toLowerCase();
+
+                let purchaseLimit = 3;
+
+                if (tier === "pro") purchaseLimit = 9;
+
+                if (tier === "premium") purchaseLimit = Infinity;
+
+                const purchasedCount =
+                    await purchasesCollection.countDocuments({
+                        buyerEmail,
+                        paymentStatus: "paid",
+                    });
+
+                if (purchasedCount >= purchaseLimit) {
+                    return res.status(403).json({
+                        message:
+                            "Purchase limit reached. Please upgrade your subscription.",
+                    });
+                }
+
+                const stripeSession =
+                    await stripe.checkout.sessions.create({
+                        payment_method_types: ["card"],
+
+                        mode: "payment",
+
+                        customer_email: buyerEmail,
+
+                        line_items: [
+                            {
+                                price_data: {
+                                    currency: "usd",
+                                    product_data: {
+                                        name: artwork.title,
+                                        images: [artwork.image],
+                                    },
+                                    unit_amount: Math.round(
+                                        artwork.price * 100
+                                    ),
+                                },
+                                quantity: 1,
+                            },
+                        ],
+
+                        metadata: {
+                            artworkId,
+                            buyerEmail,
+                        },
+
+                        success_url: `${process.env.CLIENT_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+
+                        cancel_url: `${process.env.CLIENT_URL}/artwork/${artworkId}`,
+                    });
+
+                res.json({
+                    checkoutUrl: stripeSession.url,
+                });
+
+            } catch (err) {
+                console.log(err);
+
+                res.status(500).json({
+                    message: err.message,
+                });
+            }
+        });
+
+
+
+        app.post("/verify-payment", async (req, res) => {
+
+            console.log("VERIFY PAYMENT HIT");
+
+            const { sessionId } = req.body;
+
+            const session =
+                await stripe.checkout.sessions.retrieve(sessionId);
+
+            if (session.payment_status !== "paid") {
+                return res.status(400).send({
+                    message: "Payment not completed",
+                });
+            }
+
+            const artworkId = session.metadata.artworkId;
+            const buyerEmail = session.metadata.buyerEmail;
+
+            const alreadyPurchased = await purchasesCollection.findOne({
+                artworkId,
+                buyerEmail,
+            });
+
+            if (!alreadyPurchased) {
+                await purchasesCollection.insertOne({
+                    artworkId,
+                    buyerEmail,
+                    paymentStatus: "paid",
+                    purchasedAt: new Date(),
+                });
+
+                const updateResult = await artCollection.updateOne(
+                    {
+                        _id: new ObjectId(artworkId),
+                    },
+                    {
+                        $set: {
+                            availability: "Sold",
+                        },
+                    }
+                );
+
+                console.log(updateResult);
+            }
+
+            res.send({
+                success: true,
+                artworkId,
+            });
+        });
 
 
         await client.db("admin").command({ ping: 1 });
