@@ -298,6 +298,7 @@ async function run() {
                         return {
                             _id: purchase._id,
                             artworkName: artwork?.title,
+                            artworkId: artwork._id.toString(),
                             artist: artwork?.artistName,
                             price: artwork?.price,
                             image: artwork?.image,
@@ -315,6 +316,28 @@ async function run() {
                 });
             }
         });
+
+        app.patch("/user/update-profile", async (req, res) => {
+            try {
+                const { name, email, image } = req.body;
+
+                const result = await usersCollection.updateOne(
+                    { email },
+                    {
+                        $set: {
+                            name,
+                            image,
+                        },
+                    }
+                );
+
+                res.json(result);
+            } catch (err) {
+                console.log(err);
+                res.status(500).json({ message: "Profile update failed" });
+            }
+        });
+
 
 
         await client.db("admin").command({ ping: 1 });
