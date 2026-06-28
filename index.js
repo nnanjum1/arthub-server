@@ -277,6 +277,46 @@ async function run() {
         });
 
 
+        app.get("/purchase-history/:email", async (req, res) => {
+            try {
+                const email = req.params.email;
+
+                const purchases = await purchasesCollection
+                    .find({
+                        buyerEmail: email,
+                        paymentStatus: "paid",
+                    })
+                    .sort({ purchasedAt: -1 })
+                    .toArray();
+
+                const purchaseHistory = await Promise.all(
+                    purchases.map(async (purchase) => {
+                        const artwork = await artCollection.findOne({
+                            _id: new ObjectId(purchase.artworkId),
+                        });
+
+                        return {
+                            _id: purchase._id,
+                            artworkName: artwork?.title,
+                            artist: artwork?.artistName,
+                            price: artwork?.price,
+                            image: artwork?.image,
+                            purchaseDate: purchase.purchasedAt,
+                        };
+                    })
+                );
+
+                res.json(purchaseHistory);
+
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({
+                    message: err.message,
+                });
+            }
+        });
+
+
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!")
     } catch (error) {
