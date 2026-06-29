@@ -57,7 +57,7 @@ const verifyToken = async (req, res, next) => {
 
 async function run() {
     try {
-        // await client.connect();
+        await client.connect();
         const db = client.db("arthub");
         const artCollection = db.collection("artworks")
         const usersCollection = db.collection("user");
@@ -142,7 +142,7 @@ async function run() {
 
         app.get("/user/:email", verifyToken, async (req, res) => {
             try {
-                const email = req.params.email;
+                const email = req.user.email;
 
                 const user = await usersCollection.findOne({ email });
 
@@ -532,21 +532,34 @@ async function run() {
 
         app.patch("/user/update-profile", verifyToken, async (req, res) => {
             try {
-                const { name, email, image } = req.body;
+                const { name, image } = req.body;
+
+                const email = req.user.email;
+
+                const user = await usersCollection.findOne({ email });
+
+                if (!user) {
+                    return res.status(404).json({ message: "User not found" });
+                }
 
                 const result = await usersCollection.updateOne(
                     { email },
                     {
                         $set: {
                             name,
-                            image,
-                        },
+                            image
+                        }
                     }
                 );
 
-                res.json(result);
+                return res.json({
+                    success: true,
+                    matched: result.matchedCount,
+                    modified: result.modifiedCount
+                });
+
             } catch (err) {
-                console.log(err);
+                console.error(err);
                 res.status(500).json({ message: "Profile update failed" });
             }
         });
@@ -1089,7 +1102,6 @@ async function run() {
 
                 res.send(topArtists);
 
-                res.send(topArtists);
                 const artist = await usersCollection.findOne({
                     email: grouped[0]._id
                 });
@@ -1119,7 +1131,7 @@ async function run() {
 
 
 
-        // await client.db("admin").command({ ping: 1 });
+        await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!")
     } catch (error) {
         console.error("MongoDB connection error:", error);
