@@ -44,19 +44,38 @@ async function run() {
             res.json(result)
         })
 
+
         app.get("/artworks", async (req, res) => {
-            const result = await artCollection.find().toArray();
+
+            const result = await artCollection.find({
+                status: "Approved"
+            }).toArray();
+
             res.send(result);
         });
 
+
+
         app.get("/artworks/:id", async (req, res) => {
-            const { id } = req.params;
 
             const artwork = await artCollection.findOne({
-                _id: new ObjectId(id),
+                _id: new ObjectId(req.params.id)
             });
 
+            if (!artwork) {
+                return res.status(404).send({
+                    message: "Artwork not found"
+                });
+            }
+
+            if (artwork.status !== "Approved") {
+                return res.status(403).send({
+                    message: "Artwork is awaiting approval."
+                });
+            }
+
             res.send(artwork);
+
         });
 
         app.delete("/artworks/:id", async (req, res) => {
@@ -594,6 +613,48 @@ async function run() {
             );
 
             res.send(result);
+        });
+
+        app.get("/admin/artworks", async (req, res) => {
+            const result = await artCollection
+                .find()
+                .sort({ createdAt: -1 })
+                .toArray();
+
+            res.send(result);
+        });
+
+        app.patch("/admin/artworks/approve/:id", async (req, res) => {
+
+            const result = await artCollection.updateOne(
+                {
+                    _id: new ObjectId(req.params.id)
+                },
+                {
+                    $set: {
+                        status: "Approved"
+                    }
+                }
+            );
+
+            res.send(result);
+
+        });
+        app.patch("/admin/artworks/reject/:id", async (req, res) => {
+
+            const result = await artCollection.updateOne(
+                {
+                    _id: new ObjectId(req.params.id)
+                },
+                {
+                    $set: {
+                        status: "Rejected"
+                    }
+                }
+            );
+
+            res.send(result);
+
         });
 
 
