@@ -580,6 +580,22 @@ async function run() {
             res.send(users);
         });
 
+        app.patch("/user/role/:email", async (req, res) => {
+            const email = req.params.email;
+            const { role } = req.body;
+
+            const result = await usersCollection.updateOne(
+                { email },
+                {
+                    $set: {
+                        role,
+                    },
+                }
+            );
+
+            res.send(result);
+        });
+
 
 
 
