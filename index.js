@@ -57,7 +57,7 @@ const verifyToken = async (req, res, next) => {
 
 async function run() {
     try {
-        await client.connect();
+        // await client.connect();
         const db = client.db("arthub");
         const artCollection = db.collection("artworks")
         const usersCollection = db.collection("user");
