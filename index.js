@@ -249,9 +249,16 @@ async function run() {
             });
 
             if (!alreadyPurchased) {
+
                 await purchasesCollection.insertOne({
                     artworkId,
+                    artworkName: artwork.title,
+                    artist: artwork.artistName,
+                    artistEmail: artwork.artistEmail,
                     buyerEmail,
+                    price: artwork.price,
+                    transactionId: session.payment_intent,
+                    type: "purchase",
                     paymentStatus: "paid",
                     purchasedAt: new Date(),
                 });
@@ -401,6 +408,178 @@ async function run() {
                 });
             }
         });
+
+        app.get("/admin/dashboard-stats", async (req, res) => {
+            try {
+
+                const totalUsers = await usersCollection.countDocuments();
+
+                const totalArtists = await usersCollection.countDocuments({
+                    role: "artist",
+                });
+
+                const totalSold = await artCollection.countDocuments({
+                    availability: "Sold",
+                });
+
+                const purchases = await purchasesCollection.find().toArray();
+
+                const revenue = purchases.reduce(
+                    (sum, item) => sum + Number(item.price || 0),
+                    0
+                );
+
+                res.send({
+                    totalUsers,
+                    totalArtists,
+                    totalSold,
+                    revenue,
+                });
+
+            } catch (err) {
+                console.log(err);
+                res.status(500).send({
+                    message: "Failed to load dashboard stats",
+                });
+            }
+        });
+
+        app.get("/admin/recent-artworks", async (req, res) => {
+
+            const artworks = await artCollection
+                .find()
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .toArray();
+
+            res.send(artworks);
+
+        });
+
+        app.get("/admin/recent-transactions", async (req, res) => {
+
+            const purchases = await purchasesCollection
+                .find()
+                .sort({ purchasedAt: -1 })
+                .limit(5)
+                .toArray();
+
+            res.send(purchases);
+
+        });
+
+
+        app.get("/admin/sales-chart", async (req, res) => {
+
+            const purchases = await purchasesCollection.find().toArray();
+
+            const monthly = {};
+
+            purchases.forEach(item => {
+
+                const month = new Date(item.purchasedAt).toLocaleString("default", {
+                    month: "short",
+                });
+
+                monthly[month] = (monthly[month] || 0) + Number(item.price || 0);
+
+            });
+
+            const result = Object.entries(monthly).map(([month, revenue]) => ({
+                month,
+                revenue,
+            }));
+
+            res.send(result);
+
+        });
+
+        app.get("/admin/category-chart", async (req, res) => {
+
+            const result = await artCollection.aggregate([
+                {
+                    $group: {
+                        _id: "$category",
+                        value: {
+                            $sum: 1,
+                        },
+                    },
+                },
+            ]).toArray();
+
+            const formatted = result.map(item => ({
+                name: item._id,
+                value: item.value,
+            }));
+
+            res.send(formatted);
+
+        });
+
+        app.get("/admin/users", async (req, res) => {
+
+            const users = await usersCollection.find().toArray();
+
+            res.send(users);
+
+        });
+
+        app.patch("/admin/users/:id", async (req, res) => {
+
+            const { role } = req.body;
+
+            const result = await usersCollection.updateOne(
+                {
+                    _id: new ObjectId(req.params.id),
+                },
+                {
+                    $set: {
+                        role,
+                    },
+                }
+            );
+
+            res.send(result);
+
+        });
+
+        app.get("/admin/artworks", async (req, res) => {
+
+            const artworks = await artCollection.find().toArray();
+
+            res.send(artworks);
+
+        });
+
+        app.delete("/admin/artworks/:id", async (req, res) => {
+
+            const result = await artCollection.deleteOne({
+                _id: new ObjectId(req.params.id),
+            });
+
+            res.send(result);
+
+        });
+
+        app.get("/admin/transactions", async (req, res) => {
+
+            const transactions = await purchasesCollection
+                .find()
+                .sort({ purchasedAt: -1 })
+                .toArray();
+
+            res.send(transactions);
+
+        });
+
+        app.get("/user", async (req, res) => {
+            const users = await usersCollection
+                .find()
+                .toArray();
+
+            res.send(users);
+        });
+
 
 
 
