@@ -37,6 +37,7 @@ async function run() {
         const artCollection = db.collection("artworks")
         const usersCollection = db.collection("user");
         const purchasesCollection = db.collection("purchases");
+        const transactionsCollection = db.collection("transactions");
 
         app.post("/artworks", async (req, res) => {
             const artData = req.body;
@@ -160,9 +161,17 @@ async function run() {
             try {
                 const { artworkId, buyerEmail } = req.body;
 
+
                 const user = await usersCollection.findOne({
                     email: buyerEmail,
                 });
+
+                if (!user) {
+                    return res.status(404).json({
+                        message: "User not found",
+                    });
+                }
+
 
                 const artwork = await artCollection.findOne({
                     _id: new ObjectId(artworkId),
@@ -174,7 +183,19 @@ async function run() {
                     });
                 }
 
-                const tier = (user?.subscriptionTier || "free").toLowerCase();
+                if (artwork.artistEmail === buyerEmail) {
+                    return res.status(400).json({
+                        message: "You cannot purchase your own artwork.",
+                    });
+                }
+
+                if (artwork.availability === "Sold") {
+                    return res.status(400).json({
+                        message: "This artwork has already been sold.",
+                    });
+                }
+
+                const tier = (user.subscriptionTier || "free").toLowerCase();
 
                 let purchaseLimit = 3;
 
@@ -245,61 +266,155 @@ async function run() {
 
 
         app.post("/verify-payment", async (req, res) => {
+            try {
+                console.log("VERIFY PAYMENT HIT");
 
-            console.log("VERIFY PAYMENT HIT");
 
-            const { sessionId } = req.body;
+                const { sessionId } = req.body;
 
-            const session =
-                await stripe.checkout.sessions.retrieve(sessionId);
+                if (!sessionId) {
+                    return res.status(400).json({
+                        message: "Session ID is required",
+                    });
+                }
 
-            if (session.payment_status !== "paid") {
-                return res.status(400).send({
-                    message: "Payment not completed",
+                const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+                if (session.payment_status !== "paid") {
+                    return res.status(400).json({
+                        message: "Payment not completed",
+                    });
+                }
+
+                const artworkId = session.metadata.artworkId;
+                const buyerEmail = session.metadata.buyerEmail;
+
+                const user = await usersCollection.findOne({
+                    email: buyerEmail,
                 });
-            }
 
-            const artworkId = session.metadata.artworkId;
-            const buyerEmail = session.metadata.buyerEmail;
+                const artwork = await artCollection.findOne({
+                    _id: new ObjectId(artworkId),
+                });
 
-            const alreadyPurchased = await purchasesCollection.findOne({
-                artworkId,
-                buyerEmail,
-            });
+                if (!artwork) {
+                    return res.status(404).send({
+                        message: "Artwork not found",
+                    });
+                }
 
-            if (!alreadyPurchased) {
-
-                await purchasesCollection.insertOne({
+                const alreadyPurchased = await purchasesCollection.findOne({
                     artworkId,
-                    artworkName: artwork.title,
-                    artist: artwork.artistName,
-                    artistEmail: artwork.artistEmail,
                     buyerEmail,
-                    price: artwork.price,
-                    transactionId: session.payment_intent,
-                    type: "purchase",
-                    paymentStatus: "paid",
-                    purchasedAt: new Date(),
+                });
+                if (alreadyPurchased) {
+                    return res.send({
+                        success: true,
+                        artworkId,
+                        transactionId: session.payment_intent,
+                    });
+                }
+
+                const latestArtwork = await artCollection.findOne({
+                    _id: new ObjectId(artworkId),
                 });
 
-                const updateResult = await artCollection.updateOne(
-                    {
-                        _id: new ObjectId(artworkId),
-                    },
-                    {
-                        $set: {
-                            availability: "Sold",
+                if (!latestArtwork) {
+                    return res.status(404).send({
+                        message: "Artwork not found",
+                    });
+                }
+
+                if (latestArtwork.availability === "Sold") {
+                    return res.status(400).send({
+                        message: "Artwork already sold.",
+                    });
+                }
+
+                if (!alreadyPurchased) {
+
+                    await purchasesCollection.insertOne({
+                        artworkId,
+
+                        artworkName: artwork.title,
+
+                        image: artwork.image,
+
+                        category: artwork.category,
+
+                        artist: artwork.artistName,
+
+                        artistEmail: artwork.artistEmail,
+
+                        buyerEmail,
+
+                        price: artwork.price,
+
+                        transactionId: session.payment_intent,
+
+                        paymentMethod: "Stripe",
+
+                        subscriptionTier: user.subscriptionTier,
+
+                        type: "purchase",
+
+                        paymentStatus: session.payment_status,
+
+                        purchaseDate: new Date(session.created * 1000),
+                    });
+
+                    await transactionsCollection.insertOne({
+                        transactionId: session.payment_intent,
+
+                        sessionId: session.id,
+
+                        paymentMethod: "Stripe",
+
+                        type: "purchase",
+
+                        artworkId,
+
+                        artworkTitle: artwork.title,
+
+                        buyerEmail,
+
+                        artistEmail: artwork.artistEmail,
+
+                        amount: session.amount_total / 100,
+
+                        currency: session.currency,
+
+                        paymentStatus: session.payment_status,
+
+                        createdAt: new Date(session.created * 1000),
+                    });
+                    await artCollection.updateOne(
+                        {
+                            _id: new ObjectId(artworkId),
                         },
-                    }
-                );
+                        {
+                            $set: {
+                                availability: "Sold",
+                            },
+                        }
+                    );
+                }
 
-                console.log(updateResult);
+                res.send({
+                    success: true,
+                    artworkId,
+                    transactionId: session.payment_intent,
+                });
+
+            } catch (error) {
+                console.error("VERIFY PAYMENT ERROR:", error);
+
+                res.status(500).json({
+                    success: false,
+                    message: error.message,
+                    stack: error.stack,
+                });
             }
-
-            res.send({
-                success: true,
-                artworkId,
-            });
         });
 
 
@@ -328,7 +443,7 @@ async function run() {
                             artist: artwork?.artistName,
                             price: artwork?.price,
                             image: artwork?.image,
-                            purchaseDate: purchase.purchasedAt,
+                            purchaseDate: purchase.purchaseDate,
                         };
                     })
                 );
@@ -339,6 +454,53 @@ async function run() {
                 console.error(err);
                 res.status(500).json({
                     message: err.message,
+                });
+            }
+        });
+
+        app.get("/dashboard/user/:email", async (req, res) => {
+            try {
+                const { email } = req.params;
+
+                const user = await usersCollection.findOne({
+                    email,
+                });
+
+                if (!user) {
+                    return res.status(404).json({
+                        message: "User not found",
+                    });
+                }
+
+                const purchases = await purchasesCollection
+                    .find({
+                        buyerEmail: email,
+                        paymentStatus: "paid",
+                    })
+                    .sort({ purchaseDate: -1 })
+                    .toArray();
+
+                const totalPurchased = purchases.length;
+
+                const totalSpent = purchases.reduce(
+                    (sum, item) => sum + Number(item.price || 0),
+                    0
+                );
+
+                const recentPurchases = purchases.slice(0, 5);
+
+                res.json({
+                    totalPurchased,
+                    totalTransactions: totalPurchased,
+                    totalSpent,
+                    subscriptionTier: user.subscriptionTier || "Free",
+                    recentPurchases,
+                });
+            } catch (error) {
+                console.error(error);
+
+                res.status(500).json({
+                    message: error.message,
                 });
             }
         });
@@ -655,6 +817,112 @@ async function run() {
 
             res.send(result);
 
+        });
+
+        app.get("/artist/:email", async (req, res) => {
+            try {
+                const email = req.params.email;
+
+                const artist = await usersCollection.findOne({
+                    email,
+                });
+
+                if (!artist) {
+                    return res.status(404).send({
+                        message: "Artist not found",
+                    });
+                }
+
+                const artworks = await artCollection
+                    .find({
+                        artistEmail: email,
+                    })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                res.send({
+                    artist,
+                    artworks,
+                });
+
+            } catch (err) {
+                res.status(500).send({
+                    message: err.message,
+                });
+            }
+        });
+
+        app.get("/top-artists", async (req, res) => {
+            try {
+
+                const topArtists = await purchasesCollection.aggregate([
+                    {
+                        $group: {
+                            _id: "$artistEmail",
+                            totalSales: { $sum: 1 },
+                            name: { $first: "$artist" }
+                        }
+                    },
+                    {
+                        $sort: {
+                            totalSales: -1
+                        }
+                    },
+                    {
+                        $limit: 3
+                    },
+                    {
+                        $lookup: {
+                            from: "users",
+                            localField: "_id",
+                            foreignField: "email",
+                            as: "user"
+                        }
+                    },
+                    {
+                        $unwind: {
+                            path: "$user",
+                            preserveNullAndEmptyArrays: true
+                        }
+                    },
+                    {
+                        $project: {
+                            _id: 0,
+                            email: "$_id",
+                            name: 1,
+                            image: "$user.image",
+                            totalSales: 1
+                        }
+                    }
+                ]).toArray();
+
+                res.send(topArtists);
+
+                res.send(topArtists);
+                const artist = await usersCollection.findOne({
+                    email: grouped[0]._id
+                });
+                console.log(artist);
+
+            } catch (err) {
+                res.status(500).send({
+                    message: err.message
+                });
+            }
+        });
+
+        app.get("/artworks", async (req, res) => {
+            const { category } = req.query;
+
+            const query = {};
+
+            if (category) {
+                query.category = category;
+            }
+
+            const artworks = await artCollection.find(query).toArray();
+
+            res.send(artworks);
         });
 
 
