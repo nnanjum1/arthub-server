@@ -57,12 +57,13 @@ const verifyToken = async (req, res, next) => {
 
 async function run() {
     try {
-        await client.connect();
+        // await client.connect();
         const db = client.db("arthub");
         const artCollection = db.collection("artworks")
         const usersCollection = db.collection("user");
         const purchasesCollection = db.collection("purchases");
         const transactionsCollection = db.collection("transactions");
+        const commentsCollection = db.collection("comments");
 
         app.post("/artworks", verifyToken, async (req, res) => {
             const artData = req.body;
@@ -1154,9 +1155,178 @@ async function run() {
         });
 
 
+        app.post(
+            "/artworks/:id/comments",
+            verifyToken,
+            async (req, res) => {
+
+                const artworkId = req.params.id;
+                const { comment } = req.body;
+
+                const email = req.user.email;
+
+                const user = await usersCollection.findOne({
+                    email
+                });
+
+                if (!user) {
+                    return res.status(404).send({
+                        message: "User not found"
+                    });
+                }
+
+                const purchase =
+                    await purchasesCollection.findOne({
+                        artworkId,
+                        buyerEmail: email,
+                        paymentStatus: "paid"
+                    });
+
+                if (!purchase) {
+                    return res.status(403).send({
+                        message:
+                            "Only buyers can comment."
+                    });
+                }
+
+                const newComment = {
+                    artworkId,
+                    userEmail: email,
+                    userName: user.name,
+                    userImage: user.image,
+                    comment,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                };
+
+                const result =
+                    await commentsCollection.insertOne(newComment);
+
+                res.send(result);
+            }
+        );
+
+        app.get(
+            "/artworks/:id/comments",
+            async (req, res) => {
+
+                const artworkId = req.params.id;
+
+                const comments =
+                    await commentsCollection
+                        .find({
+                            artworkId
+                        })
+                        .sort({
+                            createdAt: -1
+                        })
+                        .toArray();
+
+                res.send(comments);
+            }
+        );
+
+        app.patch(
+            "/comments/:id",
+            verifyToken,
+            async (req, res) => {
+
+                const id = req.params.id;
+                const { comment } = req.body;
+
+                const old =
+                    await commentsCollection.findOne({
+                        _id: new ObjectId(id)
+                    });
+
+                if (!old)
+                    return res.status(404).send();
+
+                if (
+                    old.userEmail !== req.user.email
+                ) {
+                    return res.status(403).send({
+                        message: "Forbidden"
+                    });
+                }
+
+                const result =
+                    await commentsCollection.updateOne(
+                        {
+                            _id: new ObjectId(id)
+                        },
+                        {
+                            $set: {
+                                comment,
+                                updatedAt: new Date()
+                            }
+                        }
+                    );
+
+                res.send(result);
+            }
+        );
+
+        app.delete(
+            "/comments/:id",
+            verifyToken,
+            async (req, res) => {
+
+                const id = req.params.id;
+
+                const old =
+                    await commentsCollection.findOne({
+                        _id: new ObjectId(id)
+                    });
+
+                if (!old)
+                    return res.status(404).send();
+
+                if (
+                    old.userEmail !== req.user.email
+                ) {
+                    return res.status(403).send({
+                        message: "Forbidden"
+                    });
+                }
+
+                const result =
+                    await commentsCollection.deleteOne({
+                        _id: new ObjectId(id)
+                    });
+
+                res.send(result);
+            }
+        );
+
+        app.get(
+            "/artworks/:id/can-comment",
+            verifyToken,
+            async (req, res) => {
+
+                const artworkId = req.params.id;
+
+                const purchase =
+                    await purchasesCollection.findOne({
+
+                        artworkId,
+
+                        buyerEmail: req.user.email,
+
+                        paymentStatus: "paid"
+
+                    });
+
+                res.send({
+                    canComment: !!purchase
+                });
+
+            }
+        );
 
 
-        await client.db("admin").command({ ping: 1 });
+
+        // await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!")
     } catch (error) {
         console.error("MongoDB connection error:", error);
