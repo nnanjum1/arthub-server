@@ -1106,61 +1106,37 @@ async function run() {
             }
         });
         app.get("/top-artists", async (req, res) => {
-            try {
-
-                const topArtists = await purchasesCollection.aggregate([
-                    {
-                        $group: {
-                            _id: "$artistEmail",
-                            totalSales: { $sum: 1 },
-                            name: { $first: "$artist" }
-                        }
-                    },
-                    {
-                        $sort: {
-                            totalSales: -1
-                        }
-                    },
-                    {
-                        $limit: 3
-                    },
-                    {
-                        $lookup: {
-                            from: "users",
-                            localField: "_id",
-                            foreignField: "email",
-                            as: "user"
-                        }
-                    },
-                    {
-                        $unwind: {
-                            path: "$user",
-                            preserveNullAndEmptyArrays: true
-                        }
-                    },
-                    {
-                        $project: {
-                            _id: 0,
-                            email: "$_id",
-                            name: 1,
-                            image: "$user.image",
-                            totalSales: 1
-                        }
+            const topArtists = await purchasesCollection.aggregate([
+                {
+                    $group: {
+                        _id: "$artistEmail",
+                        totalSales: { $sum: 1 }
                     }
-                ]).toArray();
+                },
+                {
+                    $lookup: {
+                        from: "user",
+                        localField: "_id",
+                        foreignField: "email",
+                        as: "user"
+                    }
+                }, {
+                    $unwind: "$user"
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        email: "$_id",
+                        name: "$user.name",
+                        image: "$user.image",
+                        totalSales: 1
+                    }
+                }
+            ]).toArray();
 
-                res.send(topArtists);
+            console.log(JSON.stringify(topArtists, null, 2));
 
-                const artist = await usersCollection.findOne({
-                    email: grouped[0]._id
-                });
-                console.log(artist);
-
-            } catch (err) {
-                res.status(500).send({
-                    message: err.message
-                });
-            }
+            res.send(topArtists);
         });
 
         app.get("/artworks", async (req, res) => {
