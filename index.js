@@ -1115,6 +1115,11 @@ async function run() {
                     }
                 },
                 {
+                    $sort: {
+                        totalSales: -1
+                    }
+                },
+                {
                     $lookup: {
                         from: "user",
                         localField: "_id",
