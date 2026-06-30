@@ -81,7 +81,32 @@ async function run() {
         });
 
 
+        app.get("/artworks/artist", verifyToken, async (req, res) => {
+            try {
+                // ✅ prevent crash
+                if (!req.user || !req.user.email) {
+                    return res.status(401).json({
+                        message: "Unauthorized - invalid token payload"
+                    });
+                }
 
+                const email = req.user.email;
+
+                const result = await artCollection
+                    .find({ artistEmail: email })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                return res.json(result);
+
+            } catch (err) {
+                console.error("🔥 Backend error:", err);
+
+                return res.status(500).json({
+                    message: "Internal server error"
+                });
+            }
+        });
         app.get("/artworks/:id", async (req, res) => {
 
             const artwork = await artCollection.findOne({
@@ -114,6 +139,8 @@ async function run() {
             res.send(result);
         });
 
+
+
         app.put("/artworks/:id", verifyToken, async (req, res) => {
             const id = req.params.id;
             const updatedArtwork = req.body;
@@ -128,16 +155,6 @@ async function run() {
             res.send(result);
         });
 
-        app.get("/artworks/artist/:email", async (req, res) => {
-            const email = req.params.email;
-
-            const result = await artCollection
-                .find({ artistEmail: email })
-                .sort({ createdAt: -1 })
-                .toArray();
-
-            res.send(result);
-        });
 
 
         app.get("/user/:email", verifyToken, async (req, res) => {
@@ -533,7 +550,6 @@ async function run() {
         app.patch("/user/update-profile", verifyToken, async (req, res) => {
             try {
                 const { name, image } = req.body;
-
                 const email = req.user.email;
 
                 const user = await usersCollection.findOne({ email });
@@ -542,20 +558,34 @@ async function run() {
                     return res.status(404).json({ message: "User not found" });
                 }
 
-                const result = await usersCollection.updateOne(
+                await usersCollection.updateOne(
                     { email },
                     {
                         $set: {
                             name,
-                            image
-                        }
+                            image,
+                        },
                     }
                 );
 
-                return res.json({
+                const artworkResult = await artCollection.updateMany(
+                    { artistEmail: email },
+                    {
+                        $set: {
+                            artistName: name,
+                        },
+                    }
+                );
+
+                console.log({
+                    matched: artworkResult.matchedCount,
+                    modified: artworkResult.modifiedCount,
+                });
+
+
+                res.json({
                     success: true,
-                    matched: result.matchedCount,
-                    modified: result.modifiedCount
+                    message: "Profile updated successfully",
                 });
 
             } catch (err) {
@@ -947,7 +977,26 @@ async function run() {
 
             res.send(users);
         });
+        app.get("/users/:email", async (req, res) => {
+            const email = req.params.email;
 
+            const user = await usersCollection.findOne(
+                { email },
+                {
+                    projection: {
+                        name: 1,
+                        image: 1,
+                        email: 1,
+                    },
+                }
+            );
+
+            if (!user) {
+                return res.status(404).send({ message: "User not found" });
+            }
+
+            res.send(user);
+        });
         app.patch("/user/role/:email", verifyToken, async (req, res) => {
             const email = req.params.email;
             const { role } = req.body;
