@@ -179,7 +179,7 @@ async function run() {
         });
 
         app.patch(
-            "/user/subscription/:email", verifyToken,
+            "/user/subscription/:email",
             async (req, res) => {
                 const email = req.params.email;
 
